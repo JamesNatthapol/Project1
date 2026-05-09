@@ -50,40 +50,114 @@ The system classifies five emotion categories shared across both datasets: **Ang
 
 ### 2.1 Basic Emotions in Speech
 
-Ekman [1] established the foundational theory of six basic emotions — Anger, Happiness, Sadness, Surprise, Fear, and Disgust — that are universally recognized across cultures. This framework underlies the emotion categories used in most SER datasets, including those used in this project.
+Ekman [1] established the foundational theory of six basic emotions — Anger, Happiness, Sadness, Surprise, Fear, and Disgust — that are universally recognized across cultures. This framework underlies the emotion categories used in most SER datasets, including those used in this project. The assumption that emotion expression shares a universal acoustic basis across cultures motivated the unified multilingual approach explored here.
 
 ### 2.2 Cross-corpus and Cross-lingual SER
 
-Schuller et al. [2] investigated cross-corpus acoustic emotion recognition, demonstrating that models trained on one corpus experience significant accuracy degradation when evaluated on another. This cross-corpus variance is analogous to the cross-lingual Prosody Mismatch problem observed in this project, where the acoustic space of emotion is shaped heavily by the recording context and language.
+Schuller et al. [2] investigated cross-corpus acoustic emotion recognition, demonstrating that models trained on one corpus experience significant accuracy degradation when evaluated on another. This cross-corpus variance is analogous to the cross-lingual Prosody Mismatch problem observed in this project, where the acoustic space of emotion is shaped heavily by both recording environment and spoken language.
+
+A key factor behind this mismatch is that prosodic features — the acoustic patterns that carry emotion — are not universal across languages. Table 1 illustrates how the same emotion ("Angry") manifests with significantly different prosodic profiles in English versus Korean.
+
+**Table 1:** Prosody Characteristics of "Angry" Emotion Across Languages
+
+| Feature | English "Angry" | Korean "Angry" |
+|---|---|---|
+| Pitch Range | Wide (300–500 Hz) | Narrower (200–350 Hz) |
+| Pitch Pattern | Sharp rise, abrupt fall | Gradual sustained rise |
+| Speech Rate | Fast, with abrupt pauses | Moderate, sustained delivery |
+| Energy Pattern | Burst-type short peaks | Even, sustained high level |
+| Rhythm | Stressed syllables prominent | More evenly distributed |
+
+Because MFCC encodes all of these characteristics simultaneously, a model trained on both languages sees "Angry" as two different distributions, making unified classification difficult.
 
 ### 2.3 MFCC Feature Extraction
 
-Davis and Mermelstein [3] introduced Mel-Frequency Cepstral Coefficients (MFCC) as a compact parametric representation of the spectral envelope of speech. MFCC remains the most widely used feature for SER tasks. However, as observed in this project, MFCC captures both emotional and linguistic characteristics simultaneously, making language-independent emotion learning difficult.
+Davis and Mermelstein [3] introduced Mel-Frequency Cepstral Coefficients (MFCC) as a compact parametric representation of the spectral envelope of speech. MFCC remains the most widely used feature for SER tasks due to its efficiency and effectiveness for single-language systems. However, MFCC captures both emotional and linguistic characteristics simultaneously, making language-independent emotion learning difficult.
+
+The MFCC extraction process follows a signal processing pipeline:
+
+```
+Raw Audio (WAV)
+      |
+      v
+[Pre-emphasis Filter]    -- amplifies high-frequency components
+      |
+      v
+[Frame Blocking]         -- splits audio into 25 ms frames (10 ms hop)
+      |
+      v
+[Hamming Window]         -- reduces spectral leakage at frame edges
+      |
+      v
+[Fast Fourier Transform] -- converts time domain to frequency domain
+      |
+      v
+[Mel Filter Bank]        -- 40 triangular filters on Mel scale
+      |
+      v
+[Log Compression]        -- approximates logarithmic human hearing
+      |
+      v
+[Discrete Cosine Transform (DCT)]
+      |
+      v
+MFCC Feature Vector  (shape: T x 40 per audio clip)
+```
+
+In this project, 40 MFCC coefficients are extracted per audio frame, producing a 2D matrix of shape (T, 40) that serves as the input sequence to the CNN + BiLSTM model.
 
 ### 2.4 Audio Processing Library
 
-McFee et al. [4] developed Librosa, the Python library used in this project for all audio loading, MFCC extraction, Mel Spectrogram computation, and data augmentation operations (pitch shifting, time stretching).
+McFee et al. [4] developed Librosa, the Python library used in this project for all audio loading, MFCC extraction, Mel Spectrogram computation, and data augmentation operations including pitch shifting and time stretching. Librosa provides consistent, reproducible feature extraction across different audio file formats and sampling rates.
 
 ### 2.5 Deep Learning Architecture
 
-Hochreiter and Schmidhuber [5] introduced Long Short-Term Memory (LSTM), the foundational recurrent unit used in this project's temporal modeling layers. Schuster and Paliwal [6] extended this to Bidirectional RNNs (BiLSTM), allowing the model to capture both past and future context within a sequence — critical for emotion recognition from speech.
+Hochreiter and Schmidhuber [5] introduced Long Short-Term Memory (LSTM) networks, which address the vanishing gradient problem in standard RNNs by using gating mechanisms (input gate, forget gate, output gate) to selectively retain or discard information over long time spans. This makes LSTM well-suited for sequential audio data.
 
-Zhao et al. [10] demonstrated that combining 1D CNN layers (for local spectral feature extraction) with LSTM layers (for temporal dependency modeling) achieves strong SER performance, forming the architectural basis of this project's model.
+Schuster and Paliwal [6] extended LSTM to the Bidirectional variant (BiLSTM), which processes the input sequence in both forward and backward directions simultaneously, then concatenates both hidden states at each time step:
+
+```
+Input Frames:    x1    x2    x3   ...   xT
+
+Forward LSTM:    h1f-->h2f-->h3f-->...-->hTf   (past to future)
+
+Backward LSTM:   h1b<--h2b<--h3b<--...<--hTb  (future to past)
+
+Output:          [h1f|h1b] [h2f|h2b] [h3f|h3b] ... [hTf|hTb]
+                 (concatenated, captures full temporal context)
+```
+
+By reading the sequence in both directions, BiLSTM can incorporate context from both past and future frames when classifying each time step — a critical advantage for emotion recognition, since emotional cues such as intonation rise or trailing off are spread across the full utterance.
+
+Zhao et al. [9] demonstrated that combining 1D CNN layers (for extracting local spectral patterns from each frame) with LSTM layers (for modeling temporal evolution of those patterns) achieves strong SER performance. This CNN + BiLSTM combination forms the architectural foundation of this project.
 
 ### 2.6 Regularization and Optimization
 
-Srivastava et al. [7] introduced Dropout as an effective regularization technique to prevent overfitting in neural networks. This project applies Dropout at four stages of the network with rates of 0.3 and 0.4. Kingma and Ba [11] proposed the Adam optimizer used for training, selected for its adaptive learning rate and convergence stability.
+Srivastava et al. [7] introduced Dropout as an effective regularization technique that randomly deactivates a fraction of neurons during each training step, preventing co-adaptation and reducing overfitting. This project applies Dropout at four stages of the network with rates of 0.3 and 0.4.
+
+Kingma and Ba [10] proposed the Adam optimizer, which combines momentum-based gradient updates with per-parameter adaptive learning rates. Adam was selected for its convergence stability and robustness to hyperparameter choices, particularly beneficial when training on imbalanced multilingual data.
 
 ### 2.7 Dataset
 
-Livingstone and Russo [9] published the RAVDESS dataset, the English-language data source for this project. RAVDESS contains 24 professional actors producing 8 emotions in controlled acoustic conditions, providing high-quality, reliably labeled data for SER research.
+Livingstone and Russo [8] published the RAVDESS dataset (Ryerson Audio-Visual Database of Emotional Speech and Song), the English-language data source for this project. RAVDESS contains 1,440 audio clips recorded by 24 professional actors expressing 8 emotions in controlled anechoic chamber conditions, providing high signal-to-noise ratio and reliable ground-truth labels for SER research.
 
-### 2.8 Summary of Related Work Gaps
+### 2.8 Summary of Related Work
 
-From the literature review, three key insights emerge:
-1. **Multilingual SER remains an open problem** — most prior work uses per-language models or language-specific fine-tuning.
-2. **MFCC alone is insufficient for cross-lingual SER** — language-neutral features such as Wav2Vec 2.0 or HuBERT are recommended for future work.
-3. **Data imbalance is a significant challenge** — English open datasets are far more abundant than Asian-language equivalents.
+Table 2 summarizes and compares the main approaches to multilingual SER discussed in the literature, positioning this project within the broader research landscape.
+
+**Table 2:** Comparison of SER Approaches for Multilingual Settings
+
+| Approach | Description | Advantage | Limitation |
+|---|---|---|---|
+| Per-Language Model | Separate model trained per language | High per-language accuracy | Requires language detection step |
+| Unified Multilingual (this work) | Single model trained on all languages | Simple deployment | Prosody Mismatch degrades accuracy |
+| Transfer Learning (fine-tuning) | Pre-train on large corpus, fine-tune per language | Good accuracy/cost balance | Needs large pre-training data |
+| Self-supervised (Wav2Vec 2.0, HuBERT) | Language-neutral deep representations | Best cross-lingual performance | High computational cost |
+
+From this review, three key gaps motivate this project:
+1. **Multilingual SER remains an open problem** — most prior work uses per-language models or language-specific fine-tuning rather than a unified approach.
+2. **MFCC alone is insufficient for cross-lingual SER** — language-neutral features such as Wav2Vec 2.0 or HuBERT are required for robust cross-lingual generalization.
+3. **Data imbalance is a significant challenge** — English open datasets are far more abundant than Asian-language equivalents, biasing unified models toward the majority language.
 
 ---
 
@@ -91,23 +165,39 @@ From the literature review, three key insights emerge:
 
 ### 3.1 System Architecture Overview
 
-The system consists of two pipelines:
+The system consists of two pipelines that share identical preprocessing and feature extraction steps to ensure consistency between training and inference:
 
-- **Training Pipeline:** Audio files → Label Detection → Preprocessing (Trim/Pad) → MFCC Extraction → Data Augmentation (Train only) → File-level Train/Val/Test Split → StandardScaler fitting → CNN + BiLSTM training.
-- **Inference Pipeline:** Input audio → same Preprocessing + MFCC → StandardScaler transform → Model prediction → Emotion label + Confidence Score.
+**Training Pipeline** (step by step):
+1. Scan audio files from dataset directory
+2. Detect emotion label (from folder path for Korean; from filename encoding for RAVDESS)
+3. Preprocess audio (trim silence, pad or cut to 3 seconds)
+4. Extract MFCC features (40 coefficients per frame)
+5. Apply Data Augmentation on training files only (Noise, Pitch Shift, Time Stretch)
+6. Split into Train / Validation / Test at the file level
+7. Fit StandardScaler on training features only
+8. Train CNN + BiLSTM model with EarlyStopping and ReduceLROnPlateau
+
+**Inference Pipeline** (step by step):
+1. Receive input audio file
+2. Apply identical preprocessing and MFCC extraction
+3. Transform features using the saved StandardScaler
+4. Pass features through the trained CNN + BiLSTM model
+5. Output: predicted emotion label and per-class Confidence Scores
 
 ### 3.2 Datasets
 
-| Dataset | Language | Source | Emotions |
-|---|---|---|---|
-| RAVDESS | English | Livingstone & Russo (2018) | 8 (5 used) |
-| Korean Voice Emotion Dataset | Korean | Hugging Face Datasets | 5 |
+**Table 3:** Dataset Summary
+
+| Dataset | Language | Source | Total Emotions | Emotions Used |
+|---|---|---|---|---|
+| RAVDESS | English | Livingstone & Russo (2018) | 8 | 5 |
+| Korean Voice Emotion Dataset | Korean | Hugging Face Datasets | 5 | 5 |
 
 Both datasets were unified into a single directory structure organized by emotion label, with a combined 5-class label space: Angry, Happy, Sad, Neutral, Surprise.
 
 ### 3.3 Feature Extraction
 
-Audio files were preprocessed to a standard 3-second duration at 22,050 Hz sample rate. Silence was trimmed using `librosa.effects.trim(top_db=25)`. The primary feature used was **MFCC with 40 coefficients** (shape: T × 40), computed per audio clip and passed to the model as a time-series sequence.
+Audio files were preprocessed to a standard 3-second duration at 22,050 Hz sample rate. Silence was trimmed using `librosa.effects.trim(top_db=25)`. The primary feature used was **MFCC with 40 coefficients** (shape: T x 40), computed per audio clip and passed to the model as a time-series sequence.
 
 ### 3.4 Data Augmentation
 
@@ -126,6 +216,8 @@ File paths were split at the file level before any feature loading or augmentati
 
 The model is a sequential CNN + Bidirectional LSTM network with 653,061 trainable parameters:
 
+**Table 4:** CNN + BiLSTM Model Architecture and Parameter Count
+
 | Layer | Output Shape | Parameters |
 |---|---|---|
 | Conv1D (256 filters, k=5) + BN + MaxPool + Dropout | (None, 65, 256) | 52,480 |
@@ -138,11 +230,13 @@ The model is a sequential CNN + Bidirectional LSTM network with 653,061 trainabl
 
 ### 3.7 Training Configuration
 
+**Table 5:** Training Configuration and Rationale
+
 | Parameter | Value | Rationale |
 |---|---|---|
 | Optimizer | Adam (lr=0.001) | Adaptive learning rate, stable convergence |
 | Loss | Categorical Cross-Entropy | Multi-class classification |
-| Batch Size | 64 | Balanced memory/gradient stability |
+| Batch Size | 64 | Balanced memory and gradient stability |
 | EarlyStopping | patience=10 | Prevent overfitting |
 | ReduceLROnPlateau | factor=0.5, patience=5 | Escape learning plateaus |
 | Epochs (max) | 100 | Stopped at 47 via EarlyStopping |
@@ -154,17 +248,32 @@ The model is a sequential CNN + Bidirectional LSTM network with 653,061 trainabl
 
 ### 4.1 Training Progress
 
-| Epoch | Train Loss | Train Acc | Val Loss | Val Acc | Status |
-|---|---|---|---|---|---|
-| 1 | 1.4821 | 30.12% | 1.3945 | 35.21% | Initial learning |
-| 15 | 0.8234 | 68.21% | 0.9105 | 62.34% | Improving |
-| 35 | 0.5123 | 80.12% | 0.8932 | 71.45% | Best zone |
-| 47 | 0.4821 | 85.23% | 0.9456 | 71.98% | EarlyStopping |
-| **Best (Ep. 37)** | — | — | — | **~72%** | **Restored** |
+The training run terminated at Epoch 47 via EarlyStopping, with the best weights restored from Epoch 37. Table 6 shows accuracy progress and Table 7 shows the corresponding loss values at key epochs.
+
+**Table 6:** Training and Validation Accuracy by Epoch
+
+| Epoch | Train Acc | Val Acc | Status |
+|---|---|---|---|
+| 1 | 30.12% | 35.21% | Initial learning |
+| 15 | 68.21% | 62.34% | Improving |
+| 35 | 80.12% | 71.45% | Best zone |
+| 47 | 85.23% | 71.98% | EarlyStopping triggered |
+| **Best (Ep. 37)** | — | **~72%** | **Weights restored** |
+
+**Table 7:** Training and Validation Loss by Epoch
+
+| Epoch | Train Loss | Val Loss |
+|---|---|---|
+| 1 | 1.4821 | 1.3945 |
+| 15 | 0.8234 | 0.9105 |
+| 35 | 0.5123 | 0.8932 |
+| 47 | 0.4821 | 0.9456 |
 
 ### 4.2 Test Set Performance
 
-| Emotion | Precision | Recall | F1-Score | Support |
+**Table 8:** Classification Report on Test Set
+
+| Emotion | Prec. | Rec. | F1 | n |
 |---|---|---|---|---|
 | Angry | 0.72 | 0.72 | 0.72 | 320 |
 | Happy | 0.65 | 0.65 | 0.65 | 315 |
@@ -212,10 +321,8 @@ The proposed Future of Work is a **Per-Language Model Architecture**: training a
 
 [7] 	Srivastava, N., Hinton, G., Krizhevsky, A., Sutskever, I., & Salakhutdinov, R. (2014). *Dropout: A simple way to prevent neural networks from overfitting.* The Journal of Machine Learning Research, 15(1), 1929–1958.
 
-[8] 	Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., Dean, J., ... & Zheng, X. (2016). *TensorFlow: A system for large-scale machine learning.* 12th USENIX Symposium on Operating Systems Design and Implementation (OSDI 16), 265–283.
+[8] 	Livingstone, S. R., & Russo, F. A. (2018). *The Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS): A dynamic, multimodal set of facial and vocal expressions in North American English.* PLOS ONE, 13(5), e0196391.
 
-[9] 	Livingstone, S. R., & Russo, F. A. (2018). *The Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS): A dynamic, multimodal set of facial and vocal expressions in North American English.* PLOS ONE, 13(5), e0196391.
+[9] 	Zhao, J., Mao, X., & Chen, L. (2019). *Speech emotion recognition using deep 1D & 2D CNN LSTM networks.* Biomedical Signal Processing and Control, 47, 312–323.
 
-[10] 	Zhao, J., Mao, X., & Chen, L. (2019). *Speech emotion recognition using deep 1D & 2D CNN LSTM networks.* Biomedical Signal Processing and Control, 47, 312–323.
-
-[11] 	Kingma, D. P., & Ba, J. (2014). *Adam: A method for stochastic optimization.* arXiv preprint arXiv:1412.6980.
+[10] 	Kingma, D. P., & Ba, J. (2014). *Adam: A method for stochastic optimization.* arXiv preprint arXiv:1412.6980.
